@@ -8,6 +8,9 @@
 #define MAX_ENEMIES 5
 #define MAX_TRAJECTORY_POINTS 100
 #define ENEMY_MAX_HEALTH 3
+#define DARKRED (Color){139, 0, 0, 255}
+#define DARKBLUE (Color){0, 0, 139, 255}
+#define DARKGREEN (Color){0, 100, 0, 255}
 
 typedef struct {
     Vector2 position;
@@ -24,7 +27,10 @@ typedef struct {
     Rectangle startRect;
     float rotation;
     float angularVelocity;
-    bool onGround;  // New field to track if block is on ground
+    bool onGround;
+    float mass;
+    float friction;
+    float bounciness;
 } Block;
 
 typedef struct {
@@ -34,9 +40,9 @@ typedef struct {
     Vector2 velocity;
     bool falling;
     bool landed;
-    int health;          // Health points for enemy
-    int maxHealth;       // Maximum health
-    float hitTimer;      // Timer to prevent multiple hits in quick succession
+    int health;
+    int maxHealth;
+    float hitTimer;
 } Enemy;
 
 typedef struct {
@@ -47,14 +53,24 @@ typedef struct {
 typedef enum {
     MENU,
     GAME,
-    SETTINGS
+    SETTINGS,
+    LEVEL_COMPLETE
 } GameState;
 
 Enemy enemies[MAX_ENEMIES];
 Block blocks[MAX_BLOCKS];
 int enemyCount = 0;
 int blockCount = 0;
-bool soundMuted = false;  // Global sound mute state
+bool soundMuted = false;
+int currentLevel = 1;
+int totalLevels = 2;
+
+// Settings window variables
+bool settingsWindowOpen = false;
+Rectangle settingsWindow = { 400, 200, 400, 300 };
+float masterVolume = 1.0f;
+bool showTrajectory = true;
+int difficultyLevel = 1; // 1 = Easy, 2 = Medium, 3 = Hard
 
 // Function to calculate trajectory
 TrajectoryPoints CalculateTrajectory(Vector2 startPos, Vector2 velocity, int numPoints, float timeStep) {
@@ -71,46 +87,91 @@ TrajectoryPoints CalculateTrajectory(Vector2 startPos, Vector2 velocity, int num
     return trajectory;
 }
 
-// Function to initialize enemies
-void InitializeEnemies(void) {
-    enemyCount = 2;
-    enemies[0] = (Enemy){
-        {1000.0f, 390.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
-        ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
-    };
-    enemies[1] = (Enemy){
-        {1000.0f, 505.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
-        ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
-    };
+// Function to initialize enemies for different levels
+void InitializeEnemies(int level) {
+    if (level == 1) {
+        enemyCount = 2;
+        enemies[0] = (Enemy){
+            {1000.0f, 390.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
+            ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
+        };
+        enemies[1] = (Enemy){
+            {1000.0f, 505.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
+            ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
+        };
+    }
+    else if (level == 2) {
+        enemyCount = 3;
+        enemies[0] = (Enemy){
+            {1000.0f, 390.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
+            ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
+        };
+        enemies[1] = (Enemy){
+            {1000.0f, 505.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
+            ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
+        };
+        enemies[2] = (Enemy){
+            {920.0f, 390.0f}, 15.0f, true, {0.0f, 0.0f}, false, false,
+            ENEMY_MAX_HEALTH, ENEMY_MAX_HEALTH, 0.0f
+        };
+    }
 }
 
-// Function to initialize blocks
-void InitializeBlocks(void) {
+// Function to initialize blocks with improved physics properties
+void InitializeBlocks(int level) {
     blockCount = 8;
 
-    Rectangle r1 = { 1000.0f, 300.0f, 46.0f, 120.0f };
-    blocks[0] = (Block){ r1, true, {0.0f, 0.0f}, false, r1, 0.0f, 0.0f, false };
+    if (level == 1) {
+        Rectangle r1 = { 1000.0f, 300.0f, 46.0f, 120.0f };
+        blocks[0] = (Block){ r1, true, {0.0f, 0.0f}, false, r1, 0.0f, 0.0f, false, 2.0f, 0.8f, 0.3f };
 
-    Rectangle r2 = { 913.0f, 500.0f, 140.0f, 70.0f };
-    blocks[1] = (Block){ r2, true, {0.0f, 0.0f}, false, r2, 0.0f, 0.0f, false };
+        Rectangle r2 = { 913.0f, 500.0f, 140.0f, 70.0f };
+        blocks[1] = (Block){ r2, true, {0.0f, 0.0f}, false, r2, 0.0f, 0.0f, false, 3.0f, 0.9f, 0.2f };
 
-    Rectangle r3 = { 1000.0f, 416.0f, 46.0f, 120.0f };
-    blocks[2] = (Block){ r3, true, {0.0f, 0.0f}, false, r3, 0.0f, 0.0f, false };
+        Rectangle r3 = { 1000.0f, 416.0f, 46.0f, 120.0f };
+        blocks[2] = (Block){ r3, true, {0.0f, 0.0f}, false, r3, 0.0f, 0.0f, false, 2.0f, 0.8f, 0.3f };
 
-    Rectangle r4 = { 913.0f, 270.0f, 140.0f, 70.0f };
-    blocks[3] = (Block){ r4, true, {0.0f, 0.0f}, false, r4, 0.0f, 0.0f, false };
+        Rectangle r4 = { 913.0f, 270.0f, 140.0f, 70.0f };
+        blocks[3] = (Block){ r4, true, {0.0f, 0.0f}, false, r4, 0.0f, 0.0f, false, 3.0f, 0.9f, 0.2f };
 
-    Rectangle r5 = { 912.0f, 300.0f, 46.0f, 120.0f };
-    blocks[4] = (Block){ r5, true, {0.0f, 0.0f}, false, r5, 0.0f, 0.0f, false };
+        Rectangle r5 = { 912.0f, 300.0f, 46.0f, 120.0f };
+        blocks[4] = (Block){ r5, true, {0.0f, 0.0f}, false, r5, 0.0f, 0.0f, false, 2.0f, 0.8f, 0.3f };
 
-    Rectangle r6 = { 913.0f, 384.0f, 140.0f, 70.0f };
-    blocks[5] = (Block){ r6, true, {0.0f, 0.0f}, false, r6, 0.0f, 0.0f, false };
+        Rectangle r6 = { 913.0f, 384.0f, 140.0f, 70.0f };
+        blocks[5] = (Block){ r6, true, {0.0f, 0.0f}, false, r6, 0.0f, 0.0f, false, 3.0f, 0.9f, 0.2f };
 
-    Rectangle r7 = { 915.0f, 416.0f, 46.0f, 120.0f };
-    blocks[6] = (Block){ r7, true, {0.0f, 0.0f}, false, r7, 0.0f, 0.0f, false };
+        Rectangle r7 = { 915.0f, 416.0f, 46.0f, 120.0f };
+        blocks[6] = (Block){ r7, true, {0.0f, 0.0f}, false, r7, 0.0f, 0.0f, false, 2.0f, 0.8f, 0.3f };
 
-    Rectangle r8 = { 913.0f, 250.0f, 140.0f, 70.0f };
-    blocks[7] = (Block){ r8, true, {0.0f, 0.0f}, false, r8, 0.0f, 0.0f, false };
+        Rectangle r8 = { 913.0f, 250.0f, 140.0f, 70.0f };
+        blocks[7] = (Block){ r8, true, {0.0f, 0.0f}, false, r8, 0.0f, 0.0f, false, 3.0f, 0.9f, 0.2f };
+    }
+    else if (level == 2) {
+        // Level 2 has same block layout but different positions
+        Rectangle r1 = { 1000.0f, 300.0f, 46.0f, 120.0f };
+        blocks[0] = (Block){ r1, true, {0.0f, 0.0f}, false, r1, 0.0f, 0.0f, false, 2.5f, 0.7f, 0.4f };
+
+        Rectangle r2 = { 913.0f, 500.0f, 140.0f, 70.0f };
+        blocks[1] = (Block){ r2, true, {0.0f, 0.0f}, false, r2, 0.0f, 0.0f, false, 3.5f, 0.8f, 0.3f };
+
+        Rectangle r3 = { 1000.0f, 416.0f, 46.0f, 120.0f };
+        blocks[2] = (Block){ r3, true, {0.0f, 0.0f}, false, r3, 0.0f, 0.0f, false, 2.5f, 0.7f, 0.4f };
+
+        Rectangle r4 = { 913.0f, 270.0f, 140.0f, 70.0f };
+        blocks[3] = (Block){ r4, true, {0.0f, 0.0f}, false, r4, 0.0f, 0.0f, false, 3.5f, 0.8f, 0.3f };
+
+        Rectangle r5 = { 850.0f, 300.0f, 46.0f, 120.0f };
+        blocks[4] = (Block){ r5, true, {0.0f, 0.0f}, false, r5, 0.0f, 0.0f, false, 2.5f, 0.7f, 0.4f };
+
+        Rectangle r6 = { 850.0f, 384.0f, 140.0f, 70.0f };
+        blocks[5] = (Block){ r6, true, {0.0f, 0.0f}, false, r6, 0.0f, 0.0f, false, 3.5f, 0.8f, 0.3f };
+
+        Rectangle r7 = { 850.0f, 416.0f, 46.0f, 120.0f };
+        blocks[6] = (Block){ r7, true, {0.0f, 0.0f}, false, r7, 0.0f, 0.0f, false, 2.5f, 0.7f, 0.4f };
+
+        Rectangle r8 = { 850.0f, 250.0f, 140.0f, 70.0f };
+        blocks[7] = (Block){ r8, true, {0.0f, 0.0f}, false, r8, 0.0f, 0.0f, false, 3.5f, 0.8f, 0.3f };
+    }
 }
 
 // Function to damage enemy
@@ -140,32 +201,156 @@ void ResetGame(Bird* bird, int* score, int* lives, bool* gameOver) {
     *lives = 3;
     *gameOver = false;
 
-    // Reset enemies to original positions
-    enemies[0].position = (Vector2){ 1000.0f, 390.0f };
-    enemies[0].active = true;
-    enemies[0].falling = false;
-    enemies[0].landed = false;
-    enemies[0].velocity = (Vector2){ 0.0f, 0.0f };
-    enemies[0].health = ENEMY_MAX_HEALTH;
-    enemies[0].hitTimer = 0.0f;
+    // Reset enemies based on current level
+    InitializeEnemies(currentLevel);
 
-    enemies[1].position = (Vector2){ 1000.0f, 505.0f };
-    enemies[1].active = true;
-    enemies[1].falling = false;
-    enemies[1].landed = false;
-    enemies[1].velocity = (Vector2){ 0.0f, 0.0f };
-    enemies[1].health = ENEMY_MAX_HEALTH;
-    enemies[1].hitTimer = 0.0f;
+    // Reset blocks based on current level
+    InitializeBlocks(currentLevel);
+}
 
-    // Reset blocks
+// Function to advance to next level
+void NextLevel(Bird* bird, int* score, int* lives, bool* gameOver) {
+    currentLevel++;
+    if (currentLevel > totalLevels) {
+        currentLevel = 1; // Loop back to first level
+    }
+
+    *bird = (Bird){ { 150.0f, 400.0f }, { 0.0f, 0.0f }, false, 15.0f };
+    *lives = 3;
+    *gameOver = false;
+
+    // Initialize new level
+    InitializeEnemies(currentLevel);
+    InitializeBlocks(currentLevel);
+}
+
+// Function to draw settings window
+void DrawSettingsWindow(void) {
+    if (!settingsWindowOpen) return;
+
+    // Draw semi-transparent overlay
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.5f));
+
+    // Draw settings window
+    DrawRectangleRec(settingsWindow, LIGHTGRAY);
+    DrawRectangleLinesEx(settingsWindow, 3.0f, DARKGRAY);
+
+    // Title
+    DrawText("SETTINGS", settingsWindow.x + 130, settingsWindow.y + 20, 24, DARKGRAY);
+
+    // Volume slider
+    DrawText("Master Volume:", settingsWindow.x + 20, settingsWindow.y + 70, 16, DARKGRAY);
+    Rectangle volumeSlider = { settingsWindow.x + 20, settingsWindow.y + 100, 200, 20 };
+    DrawRectangleRec(volumeSlider, WHITE);
+    DrawRectangleLinesEx(volumeSlider, 2.0f, DARKGRAY);
+
+    float sliderPos = volumeSlider.x + (masterVolume * volumeSlider.width);
+    DrawCircle((int)sliderPos, (int)(volumeSlider.y + volumeSlider.height / 2), 8, RED);
+
+    // Trajectory toggle
+    Rectangle trajectoryToggle = { settingsWindow.x + 20, settingsWindow.y + 140, 20, 20 };
+    DrawRectangleRec(trajectoryToggle, showTrajectory ? GREEN : RED);
+    DrawRectangleLinesEx(trajectoryToggle, 2.0f, DARKGRAY);
+    DrawText("Show Trajectory", settingsWindow.x + 50, settingsWindow.y + 143, 16, DARKGRAY);
+
+    // Difficulty selector
+    DrawText("Difficulty:", settingsWindow.x + 20, settingsWindow.y + 180, 16, DARKGRAY);
+    Rectangle easyBtn = { settingsWindow.x + 20, settingsWindow.y + 200, 60, 30 };
+    Rectangle mediumBtn = { settingsWindow.x + 90, settingsWindow.y + 200, 60, 30 };
+    Rectangle hardBtn = { settingsWindow.x + 160, settingsWindow.y + 200, 60, 30 };
+
+    DrawRectangleRec(easyBtn, difficultyLevel == 1 ? DARKGREEN : LIGHTGRAY);
+    DrawRectangleRec(mediumBtn, difficultyLevel == 2 ? ORANGE : LIGHTGRAY);
+    DrawRectangleRec(hardBtn, difficultyLevel == 3 ? RED : LIGHTGRAY);
+
+    DrawText("Easy", easyBtn.x + 15, easyBtn.y + 8, 12, WHITE);
+    DrawText("Medium", mediumBtn.x + 8, mediumBtn.y + 8, 12, WHITE);
+    DrawText("Hard", hardBtn.x + 15, hardBtn.y + 8, 12, WHITE);
+
+    // Close button
+    Rectangle closeBtn = { settingsWindow.x + settingsWindow.width - 80, settingsWindow.y + settingsWindow.height - 50, 60, 30 };
+    DrawRectangleRec(closeBtn, GRAY);
+    DrawText("Close", closeBtn.x + 12, closeBtn.y + 8, 16, WHITE);
+
+    // Handle input
+    Vector2 mousePos = GetMousePosition();
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(mousePos, closeBtn)) {
+            settingsWindowOpen = false;
+        }
+
+        if (CheckCollisionPointRec(mousePos, volumeSlider)) {
+            masterVolume = (mousePos.x - volumeSlider.x) / volumeSlider.width;
+            masterVolume = fmaxf(0.0f, fminf(1.0f, masterVolume));
+            SetMasterVolume(masterVolume);
+        }
+
+        if (CheckCollisionPointRec(mousePos, trajectoryToggle)) {
+            showTrajectory = !showTrajectory;
+        }
+
+        if (CheckCollisionPointRec(mousePos, easyBtn)) {
+            difficultyLevel = 1;
+        }
+        if (CheckCollisionPointRec(mousePos, mediumBtn)) {
+            difficultyLevel = 2;
+        }
+        if (CheckCollisionPointRec(mousePos, hardBtn)) {
+            difficultyLevel = 3;
+        }
+    }
+}
+
+// Improved block physics with realistic motion
+void UpdateBlockPhysics(float deltaTime) {
+    const float gravity = 0.5f;
+    const float groundY = GetScreenHeight() - 250.0f;
+
     for (int i = 0; i < blockCount; i++) {
-        blocks[i].rect = blocks[i].startRect;
-        blocks[i].active = true;
-        blocks[i].falling = false;
-        blocks[i].velocity = (Vector2){ 0.0f, 0.0f };
-        blocks[i].angularVelocity = 0.0f;
-        blocks[i].rotation = 0.0f;
-        blocks[i].onGround = false;
+        if (!blocks[i].active || blocks[i].onGround) continue;
+
+        if (blocks[i].falling) {
+            // Apply gravity based on mass
+            blocks[i].velocity.y += gravity * blocks[i].mass * deltaTime * 60.0f;
+
+            // Apply air resistance
+            blocks[i].velocity.x *= (1.0f - 0.02f * deltaTime * 60.0f);
+            blocks[i].velocity.y *= (1.0f - 0.01f * deltaTime * 60.0f);
+
+            // Update position
+            blocks[i].rect.x += blocks[i].velocity.x * deltaTime * 60.0f;
+            blocks[i].rect.y += blocks[i].velocity.y * deltaTime * 60.0f;
+
+            // Update rotation
+            blocks[i].rotation += blocks[i].angularVelocity * deltaTime * 60.0f;
+            blocks[i].angularVelocity *= (1.0f - 0.05f * deltaTime * 60.0f);
+
+            // Ground collision with bounce
+            if (blocks[i].rect.y + blocks[i].rect.height >= groundY) {
+                blocks[i].rect.y = groundY - blocks[i].rect.height;
+                blocks[i].velocity.y *= -blocks[i].bounciness;
+                blocks[i].velocity.x *= blocks[i].friction;
+                blocks[i].angularVelocity *= 0.7f;
+
+                // Stop if velocity is too low
+                if (fabs(blocks[i].velocity.y) < 1.0f && fabs(blocks[i].velocity.x) < 0.5f) {
+                    blocks[i].velocity = (Vector2){ 0.0f, 0.0f };
+                    blocks[i].angularVelocity = 0.0f;
+                    blocks[i].falling = false;
+                    blocks[i].onGround = true;
+                }
+            }
+
+            // Side boundary collision
+            if (blocks[i].rect.x < 0) {
+                blocks[i].rect.x = 0;
+                blocks[i].velocity.x *= -0.5f;
+            }
+            if (blocks[i].rect.x + blocks[i].rect.width > GetScreenWidth()) {
+                blocks[i].rect.x = GetScreenWidth() - blocks[i].rect.width;
+                blocks[i].velocity.x *= -0.5f;
+            }
+        }
     }
 }
 
@@ -175,11 +360,12 @@ int main(void) {
     const float gravity = 0.41f;
     const int maxLives = 3;
 
-    InitWindow(screenWidth, screenHeight, "Angry Birds - Raylib C");
+    InitWindow(screenWidth, screenHeight, "Angry Birds - Enhanced Edition");
     SetTargetFPS(60);
 
     // Initialize audio
     InitAudioDevice();
+    SetMasterVolume(masterVolume);
 
     // Load textures
     Image bgImage = LoadImage("backpeace.jpg");
@@ -208,9 +394,9 @@ int main(void) {
     bool dragging = false;
     bool victory = false;
 
-    // Initialize enemies and blocks
-    InitializeEnemies();
-    InitializeBlocks();
+    // Initialize first level
+    InitializeEnemies(currentLevel);
+    InitializeBlocks(currentLevel);
 
     // Main game loop
     while (!WindowShouldClose()) {
@@ -222,89 +408,69 @@ int main(void) {
 
             DrawTexture(menuBackground, 0, 0, WHITE);
 
-            Rectangle playButton = { 900, 180, 300, 100 };
-            Rectangle settingsButton = { 900, 300, 300, 100 };
-            Rectangle exitButton = { 900, 420, 300, 100 };
+            Rectangle playButton = { 800, 150, 300, 100 };
+            Rectangle settingsButton = { 950 , 500, 300, 100 };
+            Rectangle exitButton = { 450, 440, 300, 100 };
 
             Vector2 mousePoint = GetMousePosition();
+
+            // Draw buttons
+           
 
             if (CheckCollisionPointRec(mousePoint, playButton) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 currentState = GAME;
                 victory = false;
             }
             if (CheckCollisionPointRec(mousePoint, settingsButton) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                currentState = SETTINGS;
+                settingsWindowOpen = true;
             }
             if (CheckCollisionPointRec(mousePoint, exitButton) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                // Cleanup and close window
-                UnloadTexture(background);
-                UnloadTexture(ground);
-                UnloadTexture(birdTexture);
-                UnloadTexture(slingTexture);
-                UnloadTexture(blockTexture1);
-                UnloadTexture(blockTexture2);
-                UnloadTexture(enemyTexture);
-                UnloadTexture(menuBackground);
-                CloseAudioDevice();
-                CloseWindow();
-                return 0;
+                break;
             }
 
-            Rectangle backButton = { 1450, 5, 100, 50 };
-            DrawRectangleRec(backButton, LIGHTGRAY);
-            DrawText("Back", backButton.x + 20, backButton.y + 10, 20, DARKGRAY);
+            // Draw settings window if open
+            DrawSettingsWindow();
 
             EndDrawing();
             continue;
         }
 
-        if (currentState == SETTINGS) {
+        if (currentState == LEVEL_COMPLETE) {
             BeginDrawing();
             ClearBackground(RAYWHITE);
 
-            DrawTexture(menuBackground, 0, 0, WHITE);
+            DrawTexture(background, 0, -200, WHITE);
 
-            // Title
-            DrawText("SETTINGS", screenWidth / 2 - 100, 150, 40, DARKGRAY);
+            DrawText("LEVEL COMPLETE!", screenWidth / 2 - 150, screenHeight / 2 - 100, 40, DARKGREEN);
+            DrawText(TextFormat("Final Score: %d", score), screenWidth / 2 - 100, screenHeight / 2 - 50, 24, DARKGRAY);
 
-            // Mute/Unmute button
-            Rectangle muteButton = { 900, 300, 300, 100 };
-            Color buttonColor = soundMuted ? RED : GREEN;
-            DrawRectangleRec(muteButton, buttonColor);
-            DrawRectangleLinesEx(muteButton, 3.0f, BLACK);
+            Rectangle nextLevelBtn = { screenWidth / 2 - 100, screenHeight / 2, 200, 50 };
+            Rectangle menuBtn = { screenWidth / 2 - 100, screenHeight / 2 + 70, 200, 50 };
 
-            const char* buttonText = soundMuted ? "SOUND: OFF" : "SOUND: ON";
-            int textWidth = MeasureText(buttonText, 20);
-            DrawText(buttonText,
-                muteButton.x + (muteButton.width - textWidth) / 2,
-                muteButton.y + 40,
-                20, WHITE);
+            DrawRectangleRec(nextLevelBtn, DARKGREEN);
+            DrawRectangleRec(menuBtn, DARKBLUE);
 
-            // Back button
-            Rectangle backButton = { 900, 450, 300, 100 };
-            DrawRectangleRec(backButton, LIGHTGRAY);
-            DrawRectangleLinesEx(backButton, 3.0f, BLACK);
-            DrawText("BACK", backButton.x + 120, backButton.y + 40, 20, DARKGRAY);
+            DrawText("NEXT LEVEL", nextLevelBtn.x + 50, nextLevelBtn.y + 15, 20, WHITE);
+            DrawText("MAIN MENU", menuBtn.x + 50, menuBtn.y + 15, 20, WHITE);
 
             Vector2 mousePoint = GetMousePosition();
-
-            if (CheckCollisionPointRec(mousePoint, muteButton) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                soundMuted = !soundMuted;
-                if (soundMuted) {
-                    SetMasterVolume(0.0f);
-                }
-                else {
-                    SetMasterVolume(1.0f);
-                }
+            if (CheckCollisionPointRec(mousePoint, nextLevelBtn) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                NextLevel(&bird, &score, &lives, &gameOver);
+                currentState = GAME;
+                victory = false;
             }
-
-            if (CheckCollisionPointRec(mousePoint, backButton) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (CheckCollisionPointRec(mousePoint, menuBtn) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
                 currentState = MENU;
+                currentLevel = 1;
+                ResetGame(&bird, &score, &lives, &gameOver);
+                victory = false;
             }
 
             EndDrawing();
             continue;
         }
+
+        // Game logic (existing code with improvements)
 
         // Update enemy hit timers
         for (int i = 0; i < enemyCount; i++) {
@@ -313,6 +479,9 @@ int main(void) {
             }
         }
 
+        // Improved block physics
+        UpdateBlockPhysics(deltaTime);
+
         // Block-enemy collision
         for (int i = 0; i < blockCount; i++) {
             if (blocks[i].active && blocks[i].falling) {
@@ -320,16 +489,15 @@ int main(void) {
                     if (enemies[j].active && !enemies[j].falling && enemies[j].hitTimer <= 0.0f &&
                         CheckCollisionCircleRec(enemies[j].position, enemies[j].radius, blocks[i].rect)) {
 
-                        // Damage enemy by 1 point from block collision
                         DamageEnemy(j, 1);
-                        enemies[j].hitTimer = 0.5f; // Prevent multiple hits for 0.5 seconds
+                        enemies[j].hitTimer = 0.5f;
 
                         if (enemies[j].active) {
                             enemies[j].falling = true;
                             enemies[j].velocity = (Vector2){ 0.0f, -4.0f };
                         }
                         else {
-                            score += 100; // Bonus points for killing enemy
+                            score += 100;
                         }
                     }
                 }
@@ -374,14 +542,12 @@ int main(void) {
             bird.position.x += bird.velocity.x;
             bird.position.y += bird.velocity.y;
 
-            // Bird-enemy collision (instant kill)
+            // Bird-enemy collision
             for (int i = 0; i < enemyCount; i++) {
                 if (enemies[i].active &&
                     CheckCollisionCircles(bird.position, bird.radius, enemies[i].position, enemies[i].radius)) {
-
-                    // Bird kills enemy instantly
                     enemies[i].active = false;
-                    score += 150; // High score for direct bird hit
+                    score += 150;
                 }
             }
 
@@ -406,7 +572,6 @@ int main(void) {
                     bird = (Bird){ { 150.0f, 400.0f }, { 0.0f, 0.0f }, false, 15.0f };
                     lives--;
 
-                    // Check if all enemies are dead after bird reset
                     if (AllEnemiesDead()) {
                         victory = true;
                     }
@@ -416,21 +581,27 @@ int main(void) {
                 }
             }
 
-            // Bird-block collision
+            // Bird-block collision with improved physics
             for (int i = 0; i < blockCount; i++) {
                 if (blocks[i].active && !blocks[i].falling &&
                     CheckCollisionCircleRec(bird.position, bird.radius, blocks[i].rect)) {
+
                     blocks[i].falling = true;
-                    blocks[i].velocity = (Vector2){ 0.0f, -4.0f };
-                    blocks[i].angularVelocity = ((float)GetRandomValue(-20, 20)) / 10.0f;
+
+                    // Calculate impact force based on bird velocity
+                    float impactForce = sqrt(bird.velocity.x * bird.velocity.x + bird.velocity.y * bird.velocity.y);
+
+                    blocks[i].velocity = (Vector2){
+                        bird.velocity.x * 0.3f + ((float)GetRandomValue(-2, 2)),
+                        -impactForce * 0.2f
+                    };
+                    blocks[i].angularVelocity = ((float)GetRandomValue(-30, 30)) / 10.0f;
 
                     score += 10;
-                    float randomX = GetRandomValue(-3, 3);
-                    blocks[i].velocity = (Vector2){ (float)randomX, -4.0f };
 
-                    score += 10;
-                    bird.velocity.x *= -0.3f;
-                    bird.velocity.y *= -0.3f;
+                    // Reduce bird velocity after impact
+                    bird.velocity.x *= 0.7f;
+                    bird.velocity.y *= 0.7f;
                 }
             }
         }
@@ -438,6 +609,9 @@ int main(void) {
         // Check victory condition
         if (AllEnemiesDead() && !victory) {
             victory = true;
+            if (currentLevel < totalLevels) {
+                currentState = LEVEL_COMPLETE;
+            }
         }
 
         // Reset game
@@ -446,31 +620,7 @@ int main(void) {
             victory = false;
         }
 
-        // Improved block physics - reduces vibration
-        for (int i = 0; i < blockCount; i++) {
-            if (blocks[i].active && blocks[i].falling && !blocks[i].onGround) {
-                float mass = 1.0f + (blocks[i].rect.width * blocks[i].rect.height) / 10000.0f;
-                blocks[i].velocity.y += gravity * mass;
-                blocks[i].velocity.x *= 0.98f; // Slightly more friction
-
-                blocks[i].rect.x += blocks[i].velocity.x;
-                blocks[i].rect.y += blocks[i].velocity.y;
-                blocks[i].rotation += blocks[i].angularVelocity;
-                blocks[i].angularVelocity *= 0.95f; // More angular friction
-
-                float groundY = screenHeight - 250.0f;
-                if (blocks[i].rect.y + blocks[i].rect.height >= groundY) {
-                    blocks[i].rect.y = groundY - blocks[i].rect.height;
-                    blocks[i].velocity = (Vector2){ 0.0f, 0.0f };
-                    blocks[i].angularVelocity = 0.0f;
-                    blocks[i].rotation = 0.0f;
-                    blocks[i].falling = false;
-                    blocks[i].onGround = true; // Mark as on ground to prevent further movement
-                }
-            }
-        }
-
-        // Block-block collision
+        // Block-block collision with improved physics
         for (int i = 0; i < blockCount; i++) {
             if (!blocks[i].active || !blocks[i].falling || blocks[i].onGround) continue;
 
@@ -479,8 +629,17 @@ int main(void) {
 
                 if (CheckCollisionRecs(blocks[i].rect, blocks[j].rect)) {
                     blocks[j].falling = true;
-                    blocks[j].velocity = (Vector2){ (float)GetRandomValue(-1, 1), -2.0f };
-                    blocks[j].angularVelocity = ((float)GetRandomValue(-10, 10)) / 10.0f;
+
+                    // Transfer some momentum
+                    blocks[j].velocity = (Vector2){
+                        blocks[i].velocity.x * 0.5f + ((float)GetRandomValue(-1, 1)),
+                        -3.0f + ((float)GetRandomValue(-1, 1))
+                    };
+                    blocks[j].angularVelocity = ((float)GetRandomValue(-15, 15)) / 10.0f;
+
+                    // Reduce original block's velocity
+                    blocks[i].velocity.x *= 0.8f;
+                    blocks[i].velocity.y *= 0.8f;
                 }
             }
         }
@@ -497,19 +656,21 @@ int main(void) {
         Vector2 groundOrigin = { 0.0f, 0.0f };
         DrawTexturePro(ground, sourceRec, destRec, groundOrigin, 0.0f, WHITE);
 
-        DrawText("Angry Birds (Raylib)", 20, 20, 30, RED);
+        // UI
+        DrawText("Angry Birds - Enhanced Edition", 20, 20, 30, RED);
         DrawText(TextFormat("Score: %i", score), 20, 60, 20, DARKGRAY);
-        DrawText(TextFormat("Lives: %d", lives), 20, 120, 20, DARKBLUE);
-        DrawText("R to reset", 20, 90, 20, GRAY);
+        DrawText(TextFormat("Lives: %d", lives), 20, 90, 20, DARKBLUE);
+        DrawText(TextFormat("Level: %d/%d", currentLevel, totalLevels), 20, 120, 20, DARKGREEN);
+        DrawText("R to reset", 20, 150, 20, GRAY);
 
         if (gameOver && !victory) {
             DrawText("GAME OVER!", screenWidth / 2 - 100, screenHeight / 2, 40, RED);
             DrawText("R - Try again", screenWidth / 2 - 100, screenHeight / 2 + 50, 20, GRAY);
         }
 
-        if (victory) {
-            DrawText("YOU WIN!", screenWidth / 2 - 80, screenHeight / 2 - 40, 40, DARKGREEN);
-            DrawText("R - Play again", screenWidth / 2 - 80, screenHeight / 2 + 10, 20, GRAY);
+        if (victory && currentLevel >= totalLevels) {
+            DrawText("ALL LEVELS COMPLETE!", screenWidth / 2 - 150, screenHeight / 2 - 40, 40, DARKGREEN);
+            DrawText("R - Play again", screenWidth / 2 - 100, screenHeight / 2 + 10, 20, GRAY);
         }
 
         // Draw bird
@@ -521,12 +682,9 @@ int main(void) {
             (Rectangle) {
             bird.position.x, bird.position.y, (float)birdTexture.width, (float)birdTexture.height
         },
-            birdOrigin,
-            0.0f,
-            WHITE
-        );
+            birdOrigin, 0.0f, WHITE);
 
-        // Draw enemies with health bars (invisible)
+        // Draw enemies with health indication
         for (int i = 0; i < enemyCount; i++) {
             if (enemies[i].active) {
                 float enemyScale = 0.05f;
@@ -537,33 +695,46 @@ int main(void) {
                 Rectangle dest = {
                     enemies[i].position.x - enemyWidth / 1.2f,
                     enemies[i].position.y - enemyHeight / 2.0f,
-                    enemyWidth,
-                    enemyHeight
+                    enemyWidth, enemyHeight
                 };
                 Vector2 origin = { 0.0f, 0.0f };
 
                 DrawTexturePro(enemyTexture, source, dest, origin, 0.0f, WHITE);
+
+                // Draw health bar
+                Rectangle healthBar = {
+                    enemies[i].position.x - 20,
+                    enemies[i].position.y - 25,
+                    40, 6
+                };
+                DrawRectangleRec(healthBar, RED);
+
+                Rectangle healthFill = {
+                    healthBar.x, healthBar.y,
+                    healthBar.width * ((float)enemies[i].health / (float)enemies[i].maxHealth),
+                    healthBar.height
+                };
+                DrawRectangleRec(healthFill, GREEN);
+                DrawRectangleLinesEx(healthBar, 1.0f, BLACK);
             }
         }
 
-        // Draw blocks
+        // Draw blocks with improved rotation
         for (int i = 0; i < blockCount; i++) {
             if (blocks[i].active) {
                 Texture2D textureToDraw = (i % 2 == 0) ? blockTexture1 : blockTexture2;
 
                 Rectangle source = { 0.0f, 0.0f, (float)textureToDraw.width, (float)textureToDraw.height };
                 Rectangle dest = {
-                    blocks[i].rect.x,
-                    blocks[i].rect.y,
+                    blocks[i].rect.x + blocks[i].rect.width / 2.0f,
+                    blocks[i].rect.y + blocks[i].rect.height / 2.0f,
                     blocks[i].rect.width,
                     blocks[i].rect.height
                 };
 
                 Vector2 origin = { blocks[i].rect.width / 2.0f, blocks[i].rect.height / 2.0f };
-                dest.x += origin.x;
-                dest.y += origin.y;
 
-                DrawTexturePro(textureToDraw, source, dest, origin, blocks[i].rotation, WHITE);
+                DrawTexturePro(textureToDraw, source, dest, origin, blocks[i].rotation * RAD2DEG, WHITE);
             }
         }
 
@@ -583,8 +754,7 @@ int main(void) {
             slingPos.y - newHeight / 8.0f
         };
 
-        DrawTexturePro(
-            slingTexture,
+        DrawTexturePro(slingTexture,
             (Rectangle) {
             0.0f, 0.0f, (float)slingTexture.width, (float)slingTexture.height
         },
@@ -593,25 +763,36 @@ int main(void) {
         },
             (Vector2) {
             0.0f, 0.0f
-        },
-            0.0f,
-            WHITE
-        );
+        }, 0.0f, WHITE);
 
-        // Draw trajectory
-        if (!bird.launched && dragging) {
+        // Draw trajectory if enabled
+        if (!bird.launched && dragging && showTrajectory) {
             Vector2 velocity = {
                 (slingPos.x - bird.position.x) * 0.2f,
                 (slingPos.y - bird.position.y) * 0.2f
             };
-            TrajectoryPoints trajPoints = CalculateTrajectory(slingPos, velocity, 100, 0.9f);
+            TrajectoryPoints trajPoints = CalculateTrajectory(slingPos, velocity, 50, 0.9f);
             for (int i = 0; i < trajPoints.count; i++) {
-                DrawCircleV(trajPoints.points[i], 2.0f, WHITE);
+                float alpha = 1.0f - ((float)i / (float)trajPoints.count);
+                DrawCircleV(trajPoints.points[i], 2.0f, Fade(YELLOW, alpha));
             }
         }
 
         // Draw game instructions
-        DrawText("Bird: Instant kill | Blocks: 3 hits to kill", 20, 150, 16, DARKGRAY);
+        DrawText("Bird: Instant kill | Blocks: 3 hits to kill", 20, 180, 16, DARKGRAY);
+        DrawText("Use mouse to aim and shoot", 20, 200, 16, DARKGRAY);
+
+        // Draw settings button in game
+        Rectangle settingsBtn = { screenWidth - 100, 20, 80, 30 };
+        DrawRectangleRec(settingsBtn, LIGHTGRAY);
+        DrawText("Settings", settingsBtn.x + 10, settingsBtn.y + 8, 16, DARKGRAY);
+
+        if (CheckCollisionPointRec(GetMousePosition(), settingsBtn) && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            settingsWindowOpen = true;
+        }
+
+        // Draw settings window if open
+        DrawSettingsWindow();
 
         EndDrawing();
     }
@@ -629,4 +810,4 @@ int main(void) {
 
     CloseWindow();
     return 0;
-}
+} 
